@@ -27,10 +27,19 @@ class ChatViewModel: ObservableObject {
         error = nil
         sources = []
         
+        // Create assistant message placeholder for streaming
+        let assistantMessage = ChatMessage(
+            role: .assistant,
+            content: "",
+            timestamp: Date()
+        )
+        messages.append(assistantMessage)
+        let assistantMessageIndex = messages.count - 1
+        
         do {
             let token = try await authService.getAccessToken()
             
-            // Convert messages to history format
+            // Convert messages to history format (excluding the placeholder)
             let history = messages.dropLast().suffix(10).map { message in
                 ChatHistoryMessage(
                     role: message.role.rawValue,
@@ -38,27 +47,45 @@ class ChatViewModel: ObservableObject {
                 )
             }
             
-            let response = try await APIService.shared.sendChatMessage(
+            var accumulatedContent = ""
+            
+            try await APIService.shared.sendChatMessage(
                 accessToken: token,
                 message: text,
-                history: Array(history)
+                history: Array(history),
+                onContent: { [weak self] content in
+                    Task { @MainActor in
+                        guard let self = self else { return }
+                        // Append content to accumulated response
+                        accumulatedContent += content
+                        // Update the assistant message
+                        if assistantMessageIndex < self.messages.count {
+                            let currentMessage = self.messages[assistantMessageIndex]
+                            self.messages[assistantMessageIndex] = ChatMessage(
+                                role: currentMessage.role,
+                                content: accumulatedContent,
+                                timestamp: currentMessage.timestamp
+                            )
+                        }
+                    }
+                },
+                onSources: { [weak self] responseSources in
+                    Task { @MainActor in
+                        guard let self = self else { return }
+                        if !responseSources.isEmpty {
+                            self.sources = responseSources
+                        }
+                    }
+                }
             )
-            
-            let assistantMessage = ChatMessage(
-                role: .assistant,
-                content: response.response,
-                timestamp: Date()
-            )
-            
-            messages.append(assistantMessage)
-            
-            if let responseSources = response.sources, !responseSources.isEmpty {
-                sources = responseSources
-            }
         } catch {
             self.error = error.localizedDescription
-            // Remove the user message if the request failed
-            messages.removeLast()
+            // Remove both user and assistant messages if the request failed
+            if messages.count >= 2 {
+                messages.removeLast(2)
+            } else if !messages.isEmpty {
+                messages.removeLast()
+            }
         }
         
         isLoading = false
