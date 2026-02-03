@@ -2,83 +2,83 @@ import Foundation
 
 @MainActor
 class KnowledgeViewModel: ObservableObject {
-    @Published var knowledgePoints: [KnowledgePoint] = []
-    @Published var isLoading = false
-    @Published var error: String?
-    
-    private let authService: AuthService
-    private var offset = 0
-    private let limit = 20
-    private var hasMore = true
-    
-    init(authService: AuthService) {
-        self.authService = authService
+  @Published var knowledgePoints: [KnowledgePoint] = []
+  @Published var isLoading = false
+  @Published var error: String?
+
+  private var offset = 0
+  private let limit = 20
+  private var hasMore = true
+
+  private let storageService = LocalStorageService.shared
+
+  init() {
+    // 不再需要 AuthService
+  }
+
+  func loadKnowledgePoints(refresh: Bool = false) async {
+    if refresh {
+      offset = 0
+      hasMore = true
+      knowledgePoints = []
     }
-    
-    func loadKnowledgePoints(refresh: Bool = false) async {
-        if refresh {
-            offset = 0
-            hasMore = true
-            knowledgePoints = []
-        }
-        
-        guard hasMore, !isLoading else { return }
-        
-        isLoading = true
-        error = nil
-        
-        do {
-            let token = try await authService.getAccessToken()
-            let points = try await APIService.shared.getKnowledgePoints(
-                accessToken: token,
-                limit: limit,
-                offset: offset
-            )
-            
-            if points.count < limit {
-                hasMore = false
-            }
-            
-            knowledgePoints.append(contentsOf: points)
-            offset += points.count
-        } catch {
-            self.error = error.localizedDescription
-        }
-        
-        isLoading = false
+
+    guard hasMore, !isLoading else { return }
+
+    isLoading = true
+    error = nil
+
+    // 从本地存储加载
+    let localPoints = storageService.getKnowledgePoints(limit: limit, offset: offset)
+
+    if localPoints.count < limit {
+      hasMore = false
     }
-    
-    func createKnowledgePoint(question: String, answer: String, isInReviewPlan: Bool = true) async throws {
-        let token = try await authService.getAccessToken()
-        let newPoint = try await APIService.shared.createKnowledgePoint(
-            accessToken: token,
-            question: question,
-            answer: answer,
-            isInReviewPlan: isInReviewPlan
-        )
-        
-        knowledgePoints.insert(newPoint, at: 0)
+
+    // 转换为视图模型
+    let points = localPoints.map { KnowledgePoint(from: $0) }
+    knowledgePoints.append(contentsOf: points)
+    offset += points.count
+
+    isLoading = false
+  }
+
+  func createKnowledgePoint(question: String, answer: String, isInReviewPlan: Bool = true)
+    async throws
+  {
+    let localPoint = storageService.createKnowledgePoint(
+      question: question,
+      answer: answer,
+      isInReviewPlan: isInReviewPlan
+    )
+
+    let newPoint = KnowledgePoint(from: localPoint)
+    knowledgePoints.insert(newPoint, at: 0)
+  }
+
+  func updateKnowledgePoint(
+    id: String, question: String, answer: String, isInReviewPlan: Bool? = nil
+  ) async throws {
+    guard
+      let updatedLocalPoint = storageService.updateKnowledgePoint(
+        id: id,
+        question: question,
+        answer: answer,
+        isInReviewPlan: isInReviewPlan
+      )
+    else {
+      throw LocalStorageError.notFound
     }
-    
-    func updateKnowledgePoint(id: String, question: String, answer: String, isInReviewPlan: Bool? = nil) async throws {
-        let token = try await authService.getAccessToken()
-        let updatedPoint = try await APIService.shared.updateKnowledgePoint(
-            accessToken: token,
-            id: id,
-            question: question,
-            answer: answer,
-            isInReviewPlan: isInReviewPlan
-        )
-        
-        if let index = knowledgePoints.firstIndex(where: { $0.id == id }) {
-            knowledgePoints[index] = updatedPoint
-        }
+
+    let updatedPoint = KnowledgePoint(from: updatedLocalPoint)
+
+    if let index = knowledgePoints.firstIndex(where: { $0.id == id }) {
+      knowledgePoints[index] = updatedPoint
     }
-    
-    func deleteKnowledgePoint(id: String) async throws {
-        let token = try await authService.getAccessToken()
-        try await APIService.shared.deleteKnowledgePoint(accessToken: token, id: id)
-        
-        knowledgePoints.removeAll { $0.id == id }
-    }
+  }
+
+  func deleteKnowledgePoint(id: String) async throws {
+    storageService.deleteKnowledgePoint(id: id)
+    knowledgePoints.removeAll { $0.id == id }
+  }
 }

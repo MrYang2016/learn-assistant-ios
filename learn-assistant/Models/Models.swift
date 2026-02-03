@@ -1,65 +1,42 @@
 import Foundation
 
-// MARK: - User & Auth Models
+// MARK: - Knowledge Point Models (for compatibility with views)
 
-struct User: Codable, Identifiable {
-  let id: String
-  let email: String?
-  let createdAt: String?
-
-  enum CodingKeys: String, CodingKey {
-    case id
-    case email
-    case createdAt = "created_at"
-  }
-}
-
-struct AuthResponse: Codable {
-  let user: User
-  let accessToken: String
-  let refreshToken: String
-  let expiresAt: Int
-
-  enum CodingKeys: String, CodingKey {
-    case user
-    case accessToken
-    case refreshToken
-    case expiresAt
-  }
-}
-
-// MARK: - Knowledge Point Models
-
+/// 知识点模型 - 用于视图显示（从本地存储转换）
 struct KnowledgePoint: Codable, Identifiable {
   let id: String
-  let userId: String
   let question: String
   let answer: String
   let createdAt: String
   let updatedAt: String
   let isInReviewPlan: Bool
 
-  enum CodingKeys: String, CodingKey {
-    case id
-    case userId = "user_id"
-    case question
-    case answer
-    case createdAt = "created_at"
-    case updatedAt = "updated_at"
-    case isInReviewPlan = "is_in_review_plan"
+  /// 从本地存储模型创建
+  init(from local: LocalKnowledgePoint) {
+    self.id = local.id
+    self.question = local.question
+    self.answer = local.answer
+    self.createdAt = ISO8601DateFormatter().string(from: local.createdAt)
+    self.updatedAt = ISO8601DateFormatter().string(from: local.updatedAt)
+    self.isInReviewPlan = local.isInReviewPlan
   }
-}
 
-struct KnowledgePointsResponse: Codable {
-  let points: [KnowledgePoint]
-}
-
-struct KnowledgePointResponse: Codable {
-  let point: KnowledgePoint
+  init(
+    id: String, question: String, answer: String, createdAt: String, updatedAt: String,
+    isInReviewPlan: Bool
+  ) {
+    self.id = id
+    self.question = question
+    self.answer = answer
+    self.createdAt = createdAt
+    self.updatedAt = updatedAt
+    self.isInReviewPlan = isInReviewPlan
+  }
 }
 
 // MARK: - Review Models
 
+/// 复习日程模型 - 用于视图显示（从本地存储转换）
 struct ReviewSchedule: Codable, Identifiable {
   let id: String
   let knowledgePointId: String
@@ -70,105 +47,67 @@ struct ReviewSchedule: Codable, Identifiable {
   let recallText: String?
   let knowledgePoints: KnowledgePointInfo
 
-  enum CodingKeys: String, CodingKey {
-    case id
-    case knowledgePointId = "knowledge_point_id"
-    case reviewNumber = "review_number"
-    case reviewDate = "review_date"
-    case completed
-    case completedAt = "completed_at"
-    case recallText = "recall_text"
-    case knowledgePoints = "knowledge_points"
+  /// 从本地存储模型创建
+  init(from local: LocalReviewSchedule, knowledgePoint: LocalKnowledgePoint?) {
+    self.id = local.id
+    self.knowledgePointId = local.knowledgePointId
+    self.reviewNumber = local.reviewNumber
+    self.reviewDate = ISO8601DateFormatter().string(from: local.reviewDate)
+    self.completed = local.completed
+    self.completedAt = local.completedAt.map { ISO8601DateFormatter().string(from: $0) }
+    self.recallText = local.recallText
+    self.knowledgePoints = KnowledgePointInfo(
+      question: knowledgePoint?.question ?? "",
+      answer: knowledgePoint?.answer ?? ""
+    )
   }
 }
 
+/// 知识点信息 - 嵌套在复习日程中
 struct KnowledgePointInfo: Codable {
   let question: String
   let answer: String
 }
 
+/// 复习响应
 struct ReviewsResponse: Codable {
   let reviews: [ReviewSchedule]
+  let total: Int
 }
 
-// MARK: - Chat Models
-
-struct ChatMessage: Identifiable {
-  let id = UUID()
-  let role: MessageRole
-  let content: String
-  let timestamp: Date
-}
-
-enum MessageRole: String, Codable {
-  case user
-  case assistant
-}
-
-struct ChatRequest: Codable {
-  let message: String
-  let history: [ChatHistoryMessage]?
-}
-
-struct ChatHistoryMessage: Codable {
-  let role: String
-  let content: String
-}
-
-struct ChatResponse: Codable {
-  let response: String
-  let sources: [Source]?
-}
-
-struct StreamEvent: Codable {
-  let type: String
-  let content: String?
-  let sources: [Source]?
-}
-
-struct Source: Codable, Identifiable {
-  let id: String
-  let question: String
-  let answer: String
-  let similarity: Double
-}
-
-// MARK: - Error Models
-
-struct APIError: Codable {
-  let error: String
-}
-
-// MARK: - Request Models
+// MARK: - Request Models (保留用于兼容性)
 
 struct CreateKnowledgePointRequest: Codable {
   let question: String
   let answer: String
   let isInReviewPlan: Bool
-
-  enum CodingKeys: String, CodingKey {
-    case question
-    case answer
-    case isInReviewPlan
-  }
 }
 
 struct UpdateKnowledgePointRequest: Codable {
   let question: String
   let answer: String
   let isInReviewPlan: Bool?
-
-  enum CodingKeys: String, CodingKey {
-    case question
-    case answer
-    case isInReviewPlan
-  }
 }
 
 struct CompleteReviewRequest: Codable {
   let recallText: String?
+}
 
-  enum CodingKeys: String, CodingKey {
-    case recallText
+// MARK: - Error Models
+
+enum LocalStorageError: LocalizedError {
+  case notFound
+  case saveFailed
+  case loadFailed
+
+  var errorDescription: String? {
+    switch self {
+    case .notFound:
+      return "Item not found"
+    case .saveFailed:
+      return "Failed to save data"
+    case .loadFailed:
+      return "Failed to load data"
+    }
   }
 }
